@@ -34,55 +34,18 @@ HOST=localhost
 DAEMON=/sbin/start-stop-daemon
 
 # Space-separeted list of available gameserver ports
-PORTS="50001 50002 50003"
+PORTS="50001 50002 50003" # TODO: compatibily mode for ini-files
 
 # Port-specific arguments to wsw_server executable
 PORT_ARGS[50002]="+set fs_usehomedir 0 +set fs_cdpath /home/racesow/.jump-it"
 
 # DO NOT EDIT  BELOW THIS LINE
 
-VERBOSE=0
-FORCE=0
 
-printf "%d" $2 > /dev/null 2>&1
-if [ $? == 0 ]; then
-        PORT=$2
-fi
-
-for PARAM in $@
-do
-        if [ "${PARAM:0:2}" == "--" ]; then
-                case $PARAM in
-                        --verbose ) VERBOSE=1 ;;
-                        --force ) FORCE=1 ;;
-                        * ) echo `basename $0`: invalid option $PARAM; exit ;;
-                esac
-        elif [ "${PARAM:0:1}" == "-" ]; then
-
-                PLEN=${#PARAM}
-                for ((PPOS=1; PPOS < PLEN; PPOS++))
-                do
-                        case ${PARAM:$PPOS:1} in
-                                v ) VERBOSE=1 ;;
-                                f ) FORCE=1 ;;
-                                * ) echo `basename $0`: invalid option -${PARAM:$PPOS:1}; exit ;;
-                        esac
-                done
-        fi
-done
-
-if [ "$USER" != "$GAMEUSER" ]; then
-        SUDO="sudo -u $GAMEUSER -H"
-        CHUID="--chuid $GAMEUSER:$GAMEUSER"
-else
-        SUDI=""
-        CHUID=""
-fi
-
-THISFILE=$0
+# display the help for this script
 function display_help
 {
-	echo "Usage: "`basename $THISFILE`" {start|stop|check} [PORT] [OPTIONS]..."
+	echo "Usage: "`basename $THISFILE`" {start|stop|restart|check|cleanup} [PORT] [OPTIONS]..."
 	exit
 }
 
@@ -234,10 +197,108 @@ function gameserver_check_gamestate
         fi
 }
 
+# cleanup the gameserver's tempmodules folders
+function gameserver_cleanup_tempmodules
+{
+	#todo
+	echo not yet implemented...
+}
+
+# read a value from a simple .ini file
+function ini_get
+{
+    eval `sed -e 's/[[:space:]]*\=[[:space:]]*/=/g' \
+        -e 's/;.*$//' \
+        -e 's/[[:space:]]*$//' \
+        -e 's/^[[:space:]]*//' \
+        -e "s/^\(.*\)=\([^\"']*\)$/\1=\"\2\"/" \
+      < $1 \
+      | sed -n -e "/^\[$2\]/,/^\s*\[/{/^[^;].*\=.*/p;}"`
+      
+    echo ${!3}
+}
+
+
+INTERACTIVE=0
+VERBOSE=0
+FORCE=0
+pcnt=0
+
+for PARAM in $@
+do
+        if [ "${PARAM:0:2}" == "--" ]; then
+                case $PARAM in
+			--interactive ) INTERACTIVE=1 ;;
+                        --verbose ) VERBOSE=1 ;;
+                        --force ) FORCE=1 ;;
+                        * ) echo `basename $0`: invalid option $PARAM; exit ;;
+                esac
+        elif [ "${PARAM:0:1}" == "-" ]; then
+
+                PLEN=${#PARAM}
+                for ((PPOS=1; PPOS < PLEN; PPOS++))
+                do
+                        case ${PARAM:$PPOS:1} in
+				i ) INTERACTIVE=1 ;;
+                                v ) VERBOSE=1 ;;
+                                f ) FORCE=1 ;;
+                                * ) echo `basename $0`: invalid option -${PARAM:$PPOS:1}; exit ;;
+                        esac
+                done
+        elif [ $PCNT > 0 ]; then
+        	SERVERIDS="$SERVERIDS $PARAM"
+        fi
+      	PCNT=$(( $PCNT+1 )) 
+done
+
+
+if [ "$USER" != "$GAMEUSER" ]; then
+        SUDO="sudo -u $GAMEUSER -H"
+        CHUID="--chuid $GAMEUSER:$GAMEUSER"
+else
+        SUDI=""
+        CHUID=""
+fi
+
+
+for ID in $SERVERIDS
+do
+	ENABLED=$(ini_get /home/warsow/servers.ini $ID enabled)
+	if [ "$ENABLED" == "" ]; then
+		echo "Server '$ID' is not configured"
+	elif [ $ENABLED == 0 ]; then
+		echo "Command not executed for '$ID' (server disabled)"
+	else
+		PORT=$(ini_get /home/warsow/servers.ini $ID port)
+		if [ "$PORT" == "" ]; then
+			echo "No port found for server '$ID'"
+		else
+    	 	    # Check and run the action
+		    case $1 in
+	                start ) gameserver_start $PORT $ID ;;
+                        stop ) gameserver_stop $PORT $ID ;;
+                        restart ) gameserver_stop $PORT $ID; gameserver_start $PORT $ID ;;
+                        check ) gameserver_check_gamestate $PORT $ID ;;
+                        cleanup ) gameserver_cleanup_tempmodules ;;
+                        * ) display_help ;;
+                    esac
+                fi
+        fi
+done
+
+exit
+
+
+THISFILE=$0
+
+
+
 # Check and run the action
-case $1 in
-        start ) gameserver_start $PORT ;;
-        stop ) gameserver_stop $PORT ;;
-        check ) gameserver_check_gamestate $PORT ;;
-        * ) display_help ;;
-esac
+#case $1 in
+#        start ) gameserver_start $PORT ;;
+#        stop ) gameserver_stop $PORT ;;
+#        restart ) gameserver_stop $PORT; gameserver_start $PORT ;;
+#        check ) gameserver_check_gamestate $PORT ;;
+#        cleanup ) gameserver_cleanup_tempmodules ;;
+#        * ) display_help ;;
+#esac
