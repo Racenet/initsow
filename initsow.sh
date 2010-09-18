@@ -10,6 +10,7 @@
 # The user which should run the gameservers
 GAMEUSER=warsow
 
+# Name for the main screen the gameservers will run in
 SCREEN_NAME=racesow
 
 # Folder to store PID files (writeable)
@@ -27,181 +28,153 @@ GAMESERVER=wsw_server.x86_64
 #Path quakestat
 QUAKESTAT=quakestat
 
-#Hostname or IP for qstat queries
-HOST=localhost
-
 # The start-stop-daemon executable
 DAEMON=/sbin/start-stop-daemon
 
-# Space-separeted list of available gameserver ports
-PORTS="50001 50002 50003" # TODO: compatibily mode for ini-files
-
-# Port-specific arguments to wsw_server executable
-PORT_ARGS[50002]="+set fs_usehomedir 0 +set fs_cdpath /home/racesow/.jump-it"
+CONFIG=/home/zolex/initsow/example.ini
 
 # DO NOT EDIT  BELOW THIS LINE
-
+THISFILE=$0
 
 # display the help for this script
 function display_help
 {
-	echo "Usage: "`basename $THISFILE`" {start|stop|restart|check|cleanup} [PORT] [OPTIONS]..."
-	exit
+    echo "Usage: "`basename $THISFILE`" {start|stop|restart|check|cleanup} [OPTIONS]..."
+    exit
 }
 
 # get the process id of the main screen
 function get_main_screen_pid
 {
-        return `$SUDO screen -ls | pcregrep "\d+\.$SCREEN_NAME" | awk -F "." '{printf "%d",$1}'`
+    return `$SUDO screen -ls | pcregrep "\d+\.$SCREEN_NAME" | awk -F "." '{printf "%d",$1}'`
 }
-        
+
 # Start a server loop for the given port
 function gameserver_start
 {
-        get_main_screen_pid
-        if [ "$?" == "0" ]; then
-                        echo "starting main screen."
-                `$SUDO screen -dmS $SCREEN_NAME`
-        fi
+    get_main_screen_pid
+    if (($? == 0 )); then
+        echo "starting main screen."
+        `$SUDO screen -dmS $SCREEN_NAME`
+    fi
 
-        if [ "$1" == "" ]; then
-                for PORT in $PORTS; do
-                        gameserver_start $PORT
-                done
+    if [ "$1" == "" ]; then
+        for ID in $SERVERIDS; do
+            gameserver_start $ID
+        done
+    else
+        PORT=$(ini_get $CONFIG $1 port)
+        if [ "$PORT" != "" ];then
+            if [ ! -f $PATH_WARSOW/$MODDIR/cfgs/port_$PORT.cfg ]; then
+                echo "WARNING: no config found for $1"
+            fi
+            gameserver_check_pid $1
+            if (($? == 0)); then
+                exec_command "start" $1 "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
+            else
+                echo "Server '$1' ($PORT) is already running"
+            fi
+            return 1
         else
-                PORTCHECK=$(echo $PORTS | grep $1)
-                if [ "$PORTCHECK" != "" ];then
-                        if [ ! -f $PATH_WARSOW/$MODDIR/cfgs/port_$1.cfg ]; then
-                                        echo "WARNING: no config found for $1"
-                                fi
-                                gameserver_check_pid $1
-                                if [ $? == 0 ]; then                            
-                                        exec_command "start" $1 "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$1"
-                                else
-                                        echo "server $1 is already running"
-                                fi
-                                return 1
-                        else
-                                echo "server $1 is not configured"
-                        fi
+            echo "Server '$1' is not configured in $CONFIG"
+            return 23
         fi
+    fi
 }
 
 #create-command
 function exec_command
 {
-        STARTSTOP=$1
-        PORT=$2
-        SCREENCMD=$3
-        
-        CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MODDIR ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
-#       echo $CMD
+    STARTSTOP=$1
+    SCREENCMD=$3
+    PORT=$(ini_get $CONFIG $2 port)
+    ARGS=$(ini_get $CONFIG $2 args)
+    
+    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MODDIR $ARGS +exec cfgs/port_"$PORT".cfg"
+    if (($DRY == 1)); then
+        echo $CMD
+    else
         `$CMD > /dev/null`
+    fi
 }
 
 # stop gameserver(s)
 function gameserver_stop
-{                                         
-        if [ "$1" == "" ]; then
-                if [ $FORCE == 0 ]; then
-                        echo really stop all servers? [yes/no]:
-                        read -t 5 in
-                        if [ "$in" != "y" ] && [ "$in" != "yes" ]; then
-                                echo aborting...
-                                return 42
-                        fi
-                fi
-                for PORT in $PORTS; do
-                        gameserver_stop $PORT
-                done
-        else
-                PORTCHECK=$(echo $PORTS | grep $1)
-                if [ "$PORTCHECK" != "" ];then
-
-                        echo $1
-                        exec_command "stop" $1
-                        rm -f $PATH_PIDS/$1.pid
-
-                else
-                        echo "server $1 is not configured"
-                        return 23
-                fi
-        fi
-}
-
-# Kill server loop with the given port
-function gameserver_kill
 {
-        if [ "$1" == "" ]; then
-                echo "you need to specify a port for killing a server"
-                exit
-        else
-                PORTCHECK=$(echo $PORTS | grep $1)
-                if [ "$PORTCHECK" != "" ]; then
-                        gameserver_check_pid $1
-                        if [ $? == 1 ]; then
-                                echo "killing server warsow://$HOST:$1"
-                                kill -n 15 `cat $PATH_PIDS/$1.pid`
-                                rm -f  $PATH_PIDS/$1.pid
-                        else
-                                echo "server $1 is not running"
-                                return 56
-                        fi
-                else
-                        echo "server $1 is not configured"
-                        return 23
-                fi
+    if [ "$1" == "" ]; then
+        if [ $FORCE == 0 ]; then
+            echo "really stop all servers? [y/n]:"
+            read -t 5 in
+            if [ "$in" != "y" ] && [ "$in" != "yes" ]; then
+                echo "aborting..."
+                return 42
+            fi
         fi
+        for ID in $SERVERIDS; do
+            gameserver_stop $ID
+        done
+    else
+        PORT=$(ini_get $CONFIG $1 port)
+        if [ "$PORT" != "" ];then
+            exec_command "stop" $1
+            rm -f $PATH_PIDS/$1.pid
+        else
+            echo "Server '$1' is not configured in $CONFIG"
+            return 23
+        fi
+    fi
 }
 
-# check if server on port $1 is running, also removes old pidfiles if necesary
+# check if there is a pid for the server id
 function gameserver_check_pid
 {
-        if [ ! -f $PATH_PIDS/$1.pid ]; then
-                return 0
-        fi
-        SERVERPID=$(cat $PATH_PIDS/$1.pid)
-        TEST=$(echo $SERVERPID | xargs ps -fp | grep $GAMESERVER)
-        if [ "$TEST" == "" ]; then
-                rm -f $PATH_PIDS/$1.pid
-                return 0
-        else
-                return 1
-        fi
+    if [ ! -f $PATH_PIDS/$1.pid ]; then
+        return 0
+    fi
+    SERVERPID=$(cat $PATH_PIDS/$1.pid)
+    TEST=$(echo $SERVERPID | xargs ps -fp | grep $GAMESERVER)
+    if [ "$TEST" == "" ]; then
+        rm -f $PATH_PIDS/$1.pid
+        return 0
+    else
+        return 1
+    fi
 }
 
 # check if the server is running, kills hanging gameserver processes
 function gameserver_check_gamestate
 {
-        if [ "$1" == "" ]; then
-                for PORT in $PORTS; do
-                        gameserver_check_gamestate $PORT
-                done
-        else
-                SERVERTEST=`$QUAKESTAT -warsows $HOST:$1 | pcregrep "$HOST:$1 +(DOWN|no response)"`
-#               echo "$QUAKESTAT -warsows $HOST:$1 | pcregrep \"$HOST:$1 +(DOWN|no response)\""
-                if [ "$SERVERTEST" != "" ]; then
-                        echo "warsow://$HOST:$1 is not reachable via qstat"
-                        
-                        echo "* trying to find the process by it's pid"
-                        gameserver_check_pid $1
-                        if [ $? == 0 ]; then
-                                echo "* gameserver not found, starting on port $1"
-                                gameserver_start $1
-                        else
-                                echo "* restarting gameserver on port $1"
-                                gameserver_stop $1
-                                gameserver_start $1
-                        fi
-                fi
+    if [ "$1" == "" ]; then
+        for ID in $SERVERIDS; do
+            gameserver_check_gamestate $ID
+        done
+    else
+        PORT=$(ini_get $CONFIG $1 port)
+        HOST=$(ini_get $CONFIG $1 host)
+        if [ "$HOST" == "" ]; then
+            HOST="localhost"
         fi
+        SERVERTEST=`$QUAKESTAT -warsows $HOST:$PORT | pcregrep "$HOST:$PORT +(DOWN|no response)"`
+        if [ "$SERVERTEST" != "" ]; then
+            echo "Server '$ID' ($PORT) is not reachable via qstat"
+            gameserver_check_pid $1
+            if (($? == 0)); then
+                echo "* starting on port $PORT"
+                gameserver_start $1
+            else
+                echo "* restarting on port $PORT"
+                gameserver_stop $1
+                gameserver_start $1
+            fi
+        fi
+    fi
 }
 
 # cleanup the gameserver's tempmodules folders
 function gameserver_cleanup_tempmodules
 {
-	#todo
-	echo not yet implemented...
+    #todo
+    echo not yet implemented...
 }
 
 # read a value from a simple .ini file
@@ -212,93 +185,80 @@ function ini_get
         -e 's/[[:space:]]*$//' \
         -e 's/^[[:space:]]*//' \
         -e "s/^\(.*\)=\([^\"']*\)$/\1=\"\2\"/" \
-      < $1 \
-      | sed -n -e "/^\[$2\]/,/^\s*\[/{/^[^;].*\=.*/p;}"`
-      
+        < $1 \
+        | sed -n -e "/^\[$2\]/,/^\s*\[/{/^[^;].*\=.*/p;}"`
+
     echo ${!3}
 }
 
+function ini_get_sections
+{
+    echo `sed -e "s/^[^\[].*//g" \
+        -e "s/\]//g" \
+        -e "s/\[//g" \
+        -e "/^$/d" $1 \
+        | tr "\n" " "`
+}
 
+# default options
 INTERACTIVE=0
-VERBOSE=0
+QUIET=0
 FORCE=0
-pcnt=0
+DRY=0
 
+# read commandline options,
+PCNT=0
+IDCNT=0
 for PARAM in $@
 do
-        if [ "${PARAM:0:2}" == "--" ]; then
-                case $PARAM in
-			--interactive ) INTERACTIVE=1 ;;
-                        --verbose ) VERBOSE=1 ;;
-                        --force ) FORCE=1 ;;
-                        * ) echo `basename $0`: invalid option $PARAM; exit ;;
-                esac
-        elif [ "${PARAM:0:1}" == "-" ]; then
-
-                PLEN=${#PARAM}
-                for ((PPOS=1; PPOS < PLEN; PPOS++))
-                do
-                        case ${PARAM:$PPOS:1} in
-				i ) INTERACTIVE=1 ;;
-                                v ) VERBOSE=1 ;;
-                                f ) FORCE=1 ;;
-                                * ) echo `basename $0`: invalid option -${PARAM:$PPOS:1}; exit ;;
-                        esac
-                done
-        elif [ $PCNT > 0 ]; then
-        	SERVERIDS="$SERVERIDS $PARAM"
-        fi
-      	PCNT=$(( $PCNT+1 )) 
+    # reads options in the form --longNameOpt
+    if [ "${PARAM:0:2}" == "--" ]; then
+        case $PARAM in
+            --dry-run ) DRY=1 ;;
+            --force ) FORCE=1 ;;
+            --interactive ) INTERACTIVE=1 ;;
+            --QUIET ) QUIET=1 ;;
+            * ) echo `basename $THISFILE`: invalid option $PARAM; exit ;;
+        esac
+    # reads opions in the forms -x and -xyz...
+    elif [ "${PARAM:0:1}" == "-" ]; then
+        PLEN=${#PARAM}
+        for ((PPOS=1; PPOS < PLEN; PPOS++))
+        do
+            case ${PARAM:$PPOS:1} in
+            d ) DRY=1 ;;
+            f ) FORCE=1 ;;
+            i ) INTERACTIVE=1 ;;
+            q ) QUIET=1 ;;
+            * ) echo `basename $THISFILE`: invalid option -${PARAM:$PPOS:1}; exit ;;
+            esac
+        done
+    # any other options will be considered server IDs
+    elif (($PCNT > 0)); then
+        SERVERIDS="$SERVERIDS $PARAM"
+        #SERVERIDS="$PARAM" #only use the last given port for now
+        IDCNT=$(($IDCNT+1)) 
+    fi
+    PCNT=$(($PCNT+1)) 
 done
 
-
-if [ "$USER" != "$GAMEUSER" ]; then
-        SUDO="sudo -u $GAMEUSER -H"
-        CHUID="--chuid $GAMEUSER:$GAMEUSER"
-else
-        SUDI=""
-        CHUID=""
+if (($IDCNT == 0)); then
+    SERVERIDS=$(ini_get_sections $CONFIG)
+elif (($IDCNT == 1)); then
+    SINGLEID=$SERVERIDS
+    SERVERIDS=""
 fi
 
+if [ "$USER" != "$GAMEUSER" ]; then
+    SUDO="sudo -u $GAMEUSER -H"
+    #CHUID="--chuid $GAMEUSER:$GAMEUSER"
+fi
 
-for ID in $SERVERIDS
-do
-	ENABLED=$(ini_get /home/warsow/servers.ini $ID enabled)
-	if [ "$ENABLED" == "" ]; then
-		echo "Server '$ID' is not configured"
-	elif [ $ENABLED == 0 ]; then
-		echo "Command not executed for '$ID' (server disabled)"
-	else
-		PORT=$(ini_get /home/warsow/servers.ini $ID port)
-		if [ "$PORT" == "" ]; then
-			echo "No port found for server '$ID'"
-		else
-    	 	    # Check and run the action
-		    case $1 in
-	                start ) gameserver_start $PORT $ID ;;
-                        stop ) gameserver_stop $PORT $ID ;;
-                        restart ) gameserver_stop $PORT $ID; gameserver_start $PORT $ID ;;
-                        check ) gameserver_check_gamestate $PORT $ID ;;
-                        cleanup ) gameserver_cleanup_tempmodules ;;
-                        * ) display_help ;;
-                    esac
-                fi
-        fi
-done
-
-exit
-
-
-THISFILE=$0
-
-
-
-# Check and run the action
-#case $1 in
-#        start ) gameserver_start $PORT ;;
-#        stop ) gameserver_stop $PORT ;;
-#        restart ) gameserver_stop $PORT; gameserver_start $PORT ;;
-#        check ) gameserver_check_gamestate $PORT ;;
-#        cleanup ) gameserver_cleanup_tempmodules ;;
-#        * ) display_help ;;
-#esac
+case $1 in
+    start ) gameserver_start $SINGLEID ;;
+    stop ) gameserver_stop $SINGLEID ;;
+    restart ) gameserver_stop $SINGLEID; gameserver_start $SINGLEID ;;
+    check ) gameserver_check_gamestate $SINGLEID ;;
+    cleanup ) gameserver_cleanup_tempmodules ;;
+    * ) display_help ;;
+esac
