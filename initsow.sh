@@ -4,8 +4,12 @@
 # you also may want to add a cronjrob with the check command to ensure your servers are always running
 # requires: screen, start-stop-deamon, quakestat
 #
-# Usage: racesow COMMAND [PORT] [OPTIONS]...
+# Usage: racesow COMMAND [OPTIONS]...
 # options can be specified in any combination and order
+# --optionx --optiony
+# -xy
+# options without - or -- prefix are considered to be SERVERIDs which have to match the sections in the ini-file
+# if no SERVERIDs are given, all sections from the config will be used.
 
 # The user which should run the gameservers
 GAMEUSER=warsow
@@ -28,10 +32,14 @@ GAMESERVER=wsw_server.x86_64
 #Path quakestat
 QUAKESTAT=quakestat
 
+#Hostname or IP for qstat queries
+HOST=localhost
+
 # The start-stop-daemon executable
 DAEMON=/sbin/start-stop-daemon
 
-CONFIG=/home/zolex/initsow/example.ini
+# ini-file for server configuration
+CONFIG=/home/warsow/servers.ini
 
 # DO NOT EDIT  BELOW THIS LINE
 THISFILE=$0
@@ -70,7 +78,7 @@ function gameserver_start
             fi
             gameserver_check_pid $1
             if (($? == 0)); then
-                exec_command "start" $1 "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
+                exec_command "start" $PORT "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
             else
                 echo "Server '$1' ($PORT) is already running"
             fi
@@ -86,11 +94,10 @@ function gameserver_start
 function exec_command
 {
     STARTSTOP=$1
+    PORT=$2
     SCREENCMD=$3
-    PORT=$(ini_get $CONFIG $2 port)
-    ARGS=$(ini_get $CONFIG $2 args)
-    
-    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MODDIR $ARGS +exec cfgs/port_"$PORT".cfg"
+
+    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MODDIR ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
     if (($DRY == 1)); then
         echo $CMD
     else
@@ -116,7 +123,7 @@ function gameserver_stop
     else
         PORT=$(ini_get $CONFIG $1 port)
         if [ "$PORT" != "" ];then
-            exec_command "stop" $1
+            exec_command "stop" $PORT
             rm -f $PATH_PIDS/$1.pid
         else
             echo "Server '$1' is not configured in $CONFIG"
@@ -150,19 +157,15 @@ function gameserver_check_gamestate
         done
     else
         PORT=$(ini_get $CONFIG $1 port)
-        HOST=$(ini_get $CONFIG $1 host)
-        if [ "$HOST" == "" ]; then
-            HOST="localhost"
-        fi
         SERVERTEST=`$QUAKESTAT -warsows $HOST:$PORT | pcregrep "$HOST:$PORT +(DOWN|no response)"`
         if [ "$SERVERTEST" != "" ]; then
             echo "Server '$ID' ($PORT) is not reachable via qstat"
             gameserver_check_pid $1
             if (($? == 0)); then
-                echo "* starting on port $PORT"
+                echo "* server '$1' not found, starting on port $PORT"
                 gameserver_start $1
             else
-                echo "* restarting on port $PORT"
+                echo "* restarting server '$1' on port $PORT"
                 gameserver_stop $1
                 gameserver_start $1
             fi
