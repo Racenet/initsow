@@ -23,9 +23,6 @@ PATH_PIDS=/home/warsow/pids
 # Warsow root directory
 PATH_WARSOW=/home/warsow/warsow-0.5
 
-# The mod directory
-MODDIR=racesow
-
 # The gameserver executable
 GAMESERVER=wsw_server.x86_64
 
@@ -72,13 +69,19 @@ function gameserver_start
         done
     else
         PORT=$(ini_get $CONFIG $1 port)
-        if [ "$PORT" != "" ];then
-            if [ ! -f $PATH_WARSOW/$MODDIR/cfgs/port_$PORT.cfg ]; then
+        MOD=$(ini_get $CONFIG $1 mod)
+        
+        if [ "$MOD" == "" ]; then
+            MOD=basewsw
+        fi
+        
+        if [ "$PORT" != "" ]; then
+            if [ ! -f $PATH_WARSOW/$MOD/cfgs/port_$PORT.cfg ]; then
                 echo "WARNING: no config found for $1"
             fi
             gameserver_check_pid $1
             if (($? == 0)); then
-                exec_command "start" $PORT "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
+                exec_command "start" $PORT $MOD "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
             else
                 echo "Server '$1' ($PORT) is already running"
             fi
@@ -95,9 +98,10 @@ function exec_command
 {
     STARTSTOP=$1
     PORT=$2
-    SCREENCMD=$3
+    SCREENCMD=$4
+    MOD=$3
 
-    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MODDIR ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
+    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MOD ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
     if (($DRY == 1)); then
         echo $CMD
     else
@@ -123,7 +127,7 @@ function gameserver_stop
     else
         PORT=$(ini_get $CONFIG $1 port)
         if [ "$PORT" != "" ];then
-            exec_command "stop" $PORT
+            exec_command "stop" $PORT $MOD
             rm -f $PATH_PIDS/$1.pid
         else
             echo "Server '$1' is not configured in $CONFIG"
@@ -157,19 +161,55 @@ function gameserver_check_gamestate
         done
     else
         PORT=$(ini_get $CONFIG $1 port)
-        SERVERTEST=`$QUAKESTAT -warsows $HOST:$PORT | pcregrep "$HOST:$PORT +(DOWN|no response)"`
-        if [ "$SERVERTEST" != "" ]; then
-            echo "Server '$ID' ($PORT) is not reachable via qstat"
-            gameserver_check_pid $1
-            if (($? == 0)); then
-                echo "* server '$1' not found, starting on port $PORT"
-                gameserver_start $1
-            else
-                echo "* restarting server '$1' on port $PORT"
-                gameserver_stop $1
-                gameserver_start $1
-            fi
-        fi
+
+	QSQUERY="$QUAKESTAT -warsows $HOST:$PORT -R"
+       	QSRESPONSE=`$QSQUERY`
+        if [ "$DRY" == "1" ]; then
+		echo $QSQUERY
+		echo "-------------------------"
+		echo $QSRESPONSE
+		echo "-------------------------"
+		echo `echo $QSRESPONSE | pcregrep "$HOST:$PORT +(DOWN|no response)"`
+		echo "-------------------------"
+	        echo `echo $QSRESPONSE | pcregrep "gametype=race"`
+                echo "-------------------------"
+        else    
+            TEST=`echo $QSRESPONSE | pcregrep "$HOST:$PORT +(DOWN|no response)"`
+	    if [ "$TEST" != "" ]; then
+	        echo "Server '$ID' ($PORT) is not reachable via qstat"
+	        gameserver_check_pid $1
+	        if (($? == 0)); then
+	            echo "* server '$1' not found, starting on port $PORT"
+	            gameserver_start $1
+	        else
+	            echo "* restarting server '$1' on port $PORT"
+	            gameserver_stop $1
+	            gameserver_start $1
+	        fi
+	    else
+	        MOD=$(ini_get $CONFIG $1 mod)
+	        if [ "$MOD" == "" ]; then
+	            MOD=basewsw
+	        fi
+	        
+	        TEST=`echo $QSRESPONSE | pcregrep "fs_game=$MOD"`
+	        if [ "$TEST" == "" ]; then
+	            echo "Server '$ID' ($PORT) is not running the expected mod ($MOD). restarting..."
+	            gameserver_stop $1
+	            gameserver_start $1
+	        else
+	            GT=$(ini_get $CONFIG $1 gametype)
+	            if [ "$GT" != "" ]; then
+ 	                TEST=`echo $QSRESPONSE | pcregrep "gametype=$GT"`
+	                if [ "$TEST" == "" ]; then
+	                    echo "Server '$ID' ($PORT) is not running the expected gametype ($GT). restarting..."
+                            gameserver_stop $1
+                            gameserver_start $1
+                        fi
+                    fi
+                fi
+	    fi
+	fi
     fi
 }
 

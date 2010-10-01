@@ -1,2 +1,31 @@
-Thias is an init.d script to control warsow gameservers.
-It is in development since 2006 and in pruduction use at wasow-race.net
+init.d-script to control the racesow servers
+
+you also may want to add a cronjrob with the check command to ensure your
+servers are always running
+requires: screen, start-stop-deamon, quakestat
+
+Usage: ./racesow.sh COMMAND [OPTIONS]...
+
+ options can be specified in any combination and order
+ --optionx --optiony
+ -xy
+ options without - or -- prefix are considered to be SERVERIDs which have
+ to match the sections in the ini-file
+ if no SERVERIDs are given, all sections from the config will be used.
+
+A config file in the ini-format must be provided. Each section defines a
+server. if mod is left blank basewsw will be assumed.
+
+	[fs1]
+	ip = localhost
+	port = 50001
+	enabled = 1
+	mod = racesow
+	gametype = race
+	
+	[rs1]
+	ip = localhost
+	port = 50003
+	enabled = 1
+	mod = racesow
+	gametype = race
