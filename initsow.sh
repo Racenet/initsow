@@ -12,16 +12,16 @@
 # if no SERVERIDs are given, all sections from the config will be used.
 
 # The user which should run the gameservers
-GAMEUSER=warsow
+GAMEUSER=racesow
 
 # Name for the main screen the gameservers will run in
 SCREEN_NAME=racesow
 
 # Folder to store PID files (writeable)
-PATH_PIDS=/home/warsow/pids
+PATH_PIDS=/home/racesow/pids
 
 # Warsow root directory
-PATH_WARSOW=/home/warsow/warsow-0.5
+PATH_WARSOW=/home/racesow/warsow-0.5
 
 # The gameserver executable
 GAMESERVER=wsw_server.x86_64
@@ -36,7 +36,7 @@ HOST=localhost
 DAEMON=/sbin/start-stop-daemon
 
 # ini-file for server configuration
-CONFIG=/home/warsow/servers.ini
+CONFIG=/home/racesow/servers.ini
 
 # DO NOT EDIT  BELOW THIS LINE
 THISFILE=$0
@@ -68,6 +68,18 @@ function gameserver_start
             gameserver_start $ID
         done
     else
+	ENABLED=$(ini_get $CONFIG $1 enabled)
+	REMOTE=$(ini_get $CONFIG $1 remote)
+	if [ "$ENABLED" == "0" ]; then
+	    echo "$1 is disabled. skipping..."
+	    return 25
+	elif [ "$REMOTE" == "1" ]; then
+	    echo "$1 is a remote server, skipping..."
+	    return 26
+	fi
+	
+	
+	
         PORT=$(ini_get $CONFIG $1 port)
         MOD=$(ini_get $CONFIG $1 mod)
         
@@ -100,6 +112,10 @@ function exec_command
     PORT=$2
     SCREENCMD=$4
     MOD=$3
+    
+    if (($DEBUG == 1)); then
+        DEBUGGER="gdb"
+    fi
 
     CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MOD ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
     if (($DRY == 1)); then
@@ -248,6 +264,7 @@ INTERACTIVE=0
 QUIET=0
 FORCE=0
 DRY=0
+DEBUG=0
 
 # read commandline options,
 PCNT=0
@@ -260,7 +277,8 @@ do
             --dry-run ) DRY=1 ;;
             --force ) FORCE=1 ;;
             --interactive ) INTERACTIVE=1 ;;
-            --QUIET ) QUIET=1 ;;
+            --quiet ) QUIET=1 ;;
+            --debug ) DEBUG=1 ;;
             * ) echo `basename $THISFILE`: invalid option $PARAM; exit ;;
         esac
     # reads opions in the forms -x and -xyz...
@@ -270,6 +288,7 @@ do
         do
             case ${PARAM:$PPOS:1} in
             d ) DRY=1 ;;
+            g ) DEBUG=1 ;;
             f ) FORCE=1 ;;
             i ) INTERACTIVE=1 ;;
             q ) QUIET=1 ;;
