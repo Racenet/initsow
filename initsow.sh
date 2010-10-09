@@ -93,7 +93,7 @@ function gameserver_start
             fi
             gameserver_check_pid $1
             if (($? == 0)); then
-                exec_command "start" $PORT $MOD "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
+                exec_command "start" $PORT $1 $MOD "screen -S $SCREEN_NAME -X screen -t ${GAMEUSER}_$PORT"
             else
                 echo "Server '$1' ($PORT) is already running"
             fi
@@ -110,14 +110,16 @@ function exec_command
 {
     STARTSTOP=$1
     PORT=$2
-    SCREENCMD=$4
-    MOD=$3
+    SCREENCMD=$5
+    MOD=$4
     
     if (($DEBUG == 1)); then
         DEBUGGER="gdb"
     fi
 
-    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MOD ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg"
+    ADDCMDS=$(ini_get $CONFIG $3 params)
+
+    CMD="$SUDO $SCREENCMD $DAEMON --pidfile $PATH_PIDS/$PORT.pid --make-pidfile $CHUID --$STARTSTOP --chdir $PATH_WARSOW $CHUID --exec $PATH_WARSOW/$GAMESERVER +set fs_game $MOD ${PORT_ARGS[$PORT]} +exec cfgs/port_"$PORT".cfg $ADDCMDS"
     if (($DRY == 1)); then
         echo $CMD
     else
@@ -143,7 +145,7 @@ function gameserver_stop
     else
         PORT=$(ini_get $CONFIG $1 port)
         if [ "$PORT" != "" ];then
-            exec_command "stop" $PORT $MOD
+            exec_command "stop" $PORT $1 $MOD
             rm -f $PATH_PIDS/$1.pid
         else
             echo "Server '$1' is not configured in $CONFIG"
