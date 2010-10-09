@@ -14,18 +14,19 @@ Usage: ./racesow.sh COMMAND [OPTIONS]...
  if no SERVERIDs are given, all sections from the config will be used.
 
 A config file in the ini-format must be provided. Each section defines a
-server. if mod is left blank basewsw will be assumed.
+server. if mod is left blank basewsw will be assumed
 
-	[fs1]
-	ip = localhost
-	port = 50001
-	enabled = 1
-	mod = racesow
-	gametype = race
-	
 	[rs1]
-	ip = localhost
-	port = 50003
 	enabled = 1
-	mod = racesow
-	gametype = race
+	ip = "warsow-race.net"
+	port = "44400"
+	mod = "racesow"
+	gametype = "race"
+
+	[rs2]
+	enabled = 1
+	ip = "warsow-race.net"
+	port = "44401"
+	mod = "racesow"
+	gametype = "race"
+	params = "+set developer 1 +set password devel"
