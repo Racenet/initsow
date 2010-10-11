@@ -178,6 +178,11 @@ function gameserver_check_gamestate
             gameserver_check_gamestate $ID
         done
     else
+    	ENABLED=$(ini_get $CONFIG $1 enabled)
+    	if [ "$ENABLED" != "1" ]; then
+    	    return
+    	fi
+    	
         PORT=$(ini_get $CONFIG $1 port)
 
 	QSQUERY="$QUAKESTAT -warsows $HOST:$PORT -R"
